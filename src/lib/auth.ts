@@ -5,7 +5,8 @@ import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 const COOKIE_NAME = "android_task_session";
-const SESSION_SECRET = process.env.SESSION_SECRET || "android-task-manager-secret-key-2026";
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || "android-task-manager-secret-key-2026";
 
 export function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -13,12 +14,19 @@ export function hashPassword(password: string): string {
   return `${salt}:${hash}`;
 }
 
-export function verifyPassword(password: string, storedHash: string): boolean {
+export function verifyPassword(
+  password: string,
+  storedHash: string
+): boolean {
   try {
     const [salt, key] = storedHash.split(":");
     if (!salt || !key) return false;
+
     const keyBuffer = Buffer.from(key, "hex");
     const derivedKey = crypto.scryptSync(password, salt, 64);
+
+    if (keyBuffer.length !== derivedKey.length) return false;
+
     return crypto.timingSafeEqual(keyBuffer, derivedKey);
   } catch {
     return false;
@@ -26,20 +34,48 @@ export function verifyPassword(password: string, storedHash: string): boolean {
 }
 
 export function createToken(userId: string): string {
-  const payload = Buffer.from(JSON.stringify({ userId, iat: Date.now() })).toString("base64url");
-  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({ userId, iat: Date.now() })
+  ).toString("base64url");
+
+  const signature = crypto
+    .createHmac("sha256", SESSION_SECRET)
+    .update(payload)
+    .digest("base64url");
+
   return `${payload}.${signature}`;
 }
 
-export function verifyToken(token: string): { userId: string } | null {
+export function verifyToken(
+  token: string
+): { userId: string } | null {
   try {
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return null;
-    const expectedSignature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+
+    const expectedSignature = crypto
+      .createHmac("sha256", SESSION_SECRET)
+      .update(payload)
+      .digest("base64url");
+
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (
+      signatureBuffer.length !== expectedBuffer.length ||
+      !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+    ) {
       return null;
     }
-    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+
+    const data = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf-8")
+    );
+
+    if (!data || typeof data.userId !== "string") {
+      return null;
+    }
+
     return data;
   } catch {
     return null;
@@ -47,21 +83,37 @@ export function verifyToken(token: string): { userId: string } | null {
 }
 
 export async function getCurrentUser() {
+  // Offline mode: database authentication is disabled.
+  if (!db) {
+    return null;
+  }
+
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
 
   if (token) {
     const verified = verifyToken(token);
+
     if (verified?.userId) {
-      const user = await db.select().from(users).where(eq(users.id, verified.userId)).limit(1);
+      const user = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, verified.userId))
+        .limit(1);
+
       if (user.length > 0) {
         return user[0];
       }
     }
   }
 
-  // Fallback to demo user if available
-  const demoUsers = await db.select().from(users).where(eq(users.email, "alex@androidtask.com")).limit(1);
+  // Fallback to demo user if available.
+  const demoUsers = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, "alex@androidtask.com"))
+    .limit(1);
+
   if (demoUsers.length > 0) {
     return demoUsers[0];
   }
