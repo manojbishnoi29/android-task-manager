@@ -69,12 +69,15 @@ jobs:
       - name: Build Next.js app
         run: npm run build
 
-      - name: Check web output
+      - name: Verify Capacitor web assets
         run: |
-          echo "Checking Next.js output..."
-          ls -la
-          ls -la out || true
-          ls -la .next || true
+          if [ ! -f out/index.html ]; then
+            echo "ERROR: out/index.html was not generated."
+            echo "Next.js static export must be configured correctly before Capacitor sync."
+            echo "Current project output directories:"
+            ls -la
+            exit 1
+          fi
 
       - name: Add Android platform if missing
         run: |
