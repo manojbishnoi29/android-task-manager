@@ -242,7 +242,7 @@ function TaskManagerApp() {
     );
   };
 
-  const handleSaveCategory = (catData: {
+  const handleSaveCategory = async (catData: {
     id?: string;
     name: string;
     color: string;
