@@ -1,0 +1,21 @@
+{
+  "name": "Simple Android Task Manager",
+  "short_name": "Tasks",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
+  "description": "Simple clean task manager for beginner Android phone users",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/bottts/svg?seed=android-tasks",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "https://api.dicebear.com/7.x/bottts/svg?seed=android-tasks",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
