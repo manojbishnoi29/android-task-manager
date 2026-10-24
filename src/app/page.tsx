@@ -143,7 +143,13 @@ function TaskManagerApp() {
     priority: "low" | "medium" | "high";
     isStarred: boolean;
     hasReminder: boolean;
-    subtasks?: { id?: string; title: string; isCompleted: boolean }[];
+    subtasks?: {
+      id?: string;
+      title: string;
+      isCompleted: boolean;
+      taskId?: string;
+      position?: number;
+    }[];
   }) => {
     const now = new Date().toISOString();
 
@@ -156,10 +162,12 @@ function TaskManagerApp() {
           ...taskData,
           id: task.id,
           updatedAt: now,
-          subtasks: (taskData.subtasks || []).map((subtask) => ({
+          subtasks: (taskData.subtasks || []).map((subtask, index) => ({
             id: subtask.id || makeId(),
+            taskId: task.id,
             title: subtask.title,
             isCompleted: subtask.isCompleted,
+            position: index,
           })),
         } as Task;
       });
@@ -167,17 +175,21 @@ function TaskManagerApp() {
       persistTasks(next);
       showSnackbar({ text: "Task updated", type: "success" });
     } else {
+      const newTaskId = makeId();
+
       const newTask = {
         ...taskData,
-        id: makeId(),
+        id: newTaskId,
         isCompleted: false,
         completedAt: null,
         createdAt: now,
         updatedAt: now,
-        subtasks: (taskData.subtasks || []).map((subtask) => ({
+        subtasks: (taskData.subtasks || []).map((subtask, index) => ({
           id: subtask.id || makeId(),
+          taskId: newTaskId,
           title: subtask.title,
           isCompleted: subtask.isCompleted,
+          position: index,
         })),
       } as Task;
 
@@ -219,8 +231,10 @@ function TaskManagerApp() {
                 ...task.subtasks,
                 {
                   id: makeId(),
+                  taskId: task.id,
                   title: trimmedTitle,
                   isCompleted: false,
+                  position: task.subtasks.length,
                 },
               ],
             }
