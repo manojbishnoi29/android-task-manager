@@ -64,7 +64,6 @@ function TaskManagerApp() {
     []
   );
 
-  // Load saved data from this phone only.
   useEffect(() => {
     try {
       const local = loadTasksLocally();
@@ -133,7 +132,7 @@ function TaskManagerApp() {
     });
   };
 
-  const handleSaveTask = (taskData: {
+  const handleSaveTask = async (taskData: {
     id?: string;
     title: string;
     description?: string | null;
@@ -492,7 +491,9 @@ function TaskManagerApp() {
 
       <AuthModal
         isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+        }}
         onAuthSuccess={() => {
           setIsAuthModalOpen(false);
           showSnackbar({
