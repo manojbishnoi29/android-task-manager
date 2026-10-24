@@ -17,21 +17,26 @@ import { CategoryModal } from "@/components/CategoryModal";
 import { AuthModal } from "@/components/AuthModal";
 import { Snackbar, SnackbarMessage } from "@/components/Snackbar";
 import { FloatingActionButton } from "@/components/FloatingActionButton";
-import { saveTasksLocally, loadTasksLocally } from "@/lib/storage";
+import {
+  saveTasksLocally,
+  loadTasksLocally,
+  saveCategoriesLocally,
+  loadCategoriesLocally,
+} from "@/lib/storage";
+
+const makeId = () =>
+  `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 function TaskManagerApp() {
-  const { user, setUser, deviceViewMode } = useTheme();
+  const { setUser, deviceViewMode } = useTheme();
 
-  // Core data states
   const [tasks, setTasks] = useState<Task[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Navigation states
   const [currentTab, setCurrentTab] = useState<ViewTab>("all");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Modals
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
 
@@ -39,12 +44,15 @@ function TaskManagerApp() {
   const [categoryToEdit, setCategoryToEdit] = useState<Category | null>(null);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-
-  // Snackbar notifications with Undo support
   const [snackbar, setSnackbar] = useState<SnackbarMessage | null>(null);
 
   const showSnackbar = useCallback(
-    (msg: { text: string; type?: "success" | "error" | "info"; actionLabel?: string; onAction?: () => void }) => {
+    (msg: {
+      text: string;
+      type?: "success" | "error" | "info";
+      actionLabel?: string;
+      onAction?: () => void;
+    }) => {
       setSnackbar({
         id: `snack-${Date.now()}`,
         text: msg.text,
@@ -56,175 +64,76 @@ function TaskManagerApp() {
     []
   );
 
-  // Fetch initial user session
-  const fetchSession = useCallback(async () => {
+  // Load saved data from this phone only.
+  useEffect(() => {
     try {
-      const res = await fetch("/api/auth/me");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) {
-          setUser(data.user);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load session", e);
-    }
-  }, [setUser]);
-
-  // Fetch categories
-  const fetchCategories = useCallback(async () => {
-    try {
-      const res = await fetch("/api/categories");
-      if (res.ok) {
-        const data = await res.json();
-        setCategories(data.categories || []);
-      }
-    } catch (e) {
-      console.error("Failed to load categories", e);
-    }
-  }, []);
-
-  // Fetch tasks
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch("/api/tasks");
-      if (res.ok) {
-        const data = await res.json();
-        const loadedTasks: Task[] = data.tasks || [];
-        setTasks(loadedTasks);
-        // Save to local storage cache
-        saveTasksLocally(loadedTasks);
-      } else {
-        // Fallback to local storage
-        const local = loadTasksLocally();
-        if (local?.tasks) {
-          setTasks(local.tasks);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to fetch tasks, using local storage", e);
       const local = loadTasksLocally();
-      if (local?.tasks) {
-        setTasks(local.tasks);
-      }
+      const savedCategories = loadCategoriesLocally();
+
+      setTasks(local?.tasks || []);
+      setCategories(savedCategories || []);
+    } catch (error) {
+      console.error("Could not load local data", error);
+      showSnackbar({
+        text: "Could not load saved data",
+        type: "error",
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showSnackbar]);
 
-  useEffect(() => {
-    fetchSession();
-    fetchCategories();
-    fetchTasks();
-  }, [fetchSession, fetchCategories, fetchTasks]);
-
-  // 1. Task Toggle Complete (Optimistic)
-  const handleToggleComplete = async (task: Task) => {
-    const updatedStatus = !task.isCompleted;
-
-    // Optimistic update
-    setTasks((prev) => {
-      const next = prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              isCompleted: updatedStatus,
-              completedAt: updatedStatus ? new Date().toISOString() : null,
-            }
-          : t
-      );
-      saveTasksLocally(next);
-      return next;
-    });
-
-    try {
-      const res = await fetch(`/api/tasks/${task.id}/toggle`, { method: "POST" });
-      if (!res.ok) {
-        throw new Error("Failed to toggle task");
-      }
-    } catch {
-      // Revert if error
-      setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, isCompleted: task.isCompleted } : t))
-      );
-      showSnackbar({ text: "Failed to update task status", type: "error" });
-    }
+  const persistTasks = (next: Task[]) => {
+    setTasks(next);
+    saveTasksLocally(next);
   };
 
-  // 2. Task Toggle Star (Optimistic)
-  const handleToggleStar = async (task: Task) => {
-    const updatedStarred = !task.isStarred;
-
-    setTasks((prev) => {
-      const next = prev.map((t) => (t.id === task.id ? { ...t, isStarred: updatedStarred } : t));
-      saveTasksLocally(next);
-      return next;
-    });
-
-    try {
-      await fetch(`/api/tasks/${task.id}/star`, { method: "POST" });
-    } catch {
-      setTasks((prev) =>
-        prev.map((t) => (t.id === task.id ? { ...t, isStarred: task.isStarred } : t))
-      );
-    }
+  const persistCategories = (next: Category[]) => {
+    setCategories(next);
+    saveCategoriesLocally(next);
   };
 
-  // 3. Delete Task (Optimistic with UNDO action)
-  const handleDeleteTask = async (taskToDelete: Task) => {
-    const originalTasks = [...tasks];
+  const handleToggleComplete = (task: Task) => {
+    const next = tasks.map((item) =>
+      item.id === task.id
+        ? {
+            ...item,
+            isCompleted: !item.isCompleted,
+            completedAt: !item.isCompleted
+              ? new Date().toISOString()
+              : null,
+          }
+        : item
+    );
 
-    // Optimistically remove
-    setTasks((prev) => {
-      const next = prev.filter((t) => t.id !== taskToDelete.id);
-      saveTasksLocally(next);
-      return next;
-    });
+    persistTasks(next);
+  };
 
-    let isUndone = false;
+  const handleToggleStar = (task: Task) => {
+    persistTasks(
+      tasks.map((item) =>
+        item.id === task.id
+          ? { ...item, isStarred: !item.isStarred }
+          : item
+      )
+    );
+  };
+
+  const handleDeleteTask = (task: Task) => {
+    const previousTasks = [...tasks];
+    const next = tasks.filter((item) => item.id !== task.id);
+
+    persistTasks(next);
 
     showSnackbar({
-      text: `Deleted "${taskToDelete.title}"`,
+      text: `Deleted "${task.title}"`,
       type: "info",
       actionLabel: "Undo",
-      onAction: async () => {
-        isUndone = true;
-        // Restore locally
-        setTasks(originalTasks);
-        saveTasksLocally(originalTasks);
-        // Restore remotely by creating
-        await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: taskToDelete.title,
-            description: taskToDelete.description,
-            categoryId: taskToDelete.categoryId,
-            dueDate: taskToDelete.dueDate,
-            dueTime: taskToDelete.dueTime,
-            priority: taskToDelete.priority,
-            isStarred: taskToDelete.isStarred,
-            subtasks: taskToDelete.subtasks.map((s) => ({ title: s.title, isCompleted: s.isCompleted })),
-          }),
-        });
-        fetchTasks();
-      },
+      onAction: () => persistTasks(previousTasks),
     });
-
-    // Run delete after brief delay if not undone
-    setTimeout(async () => {
-      if (!isUndone) {
-        try {
-          await fetch(`/api/tasks/${taskToDelete.id}`, { method: "DELETE" });
-        } catch (e) {
-          console.error("Delete task failed", e);
-        }
-      }
-    }, 4500);
   };
 
-  // 4. Save Task (Create or Update)
-  const handleSaveTask = async (taskData: {
+  const handleSaveTask = (taskData: {
     id?: string;
     title: string;
     description?: string | null;
@@ -236,198 +145,172 @@ function TaskManagerApp() {
     hasReminder: boolean;
     subtasks?: { id?: string; title: string; isCompleted: boolean }[];
   }) => {
-    const isEditing = Boolean(taskData.id);
+    const now = new Date().toISOString();
 
-    try {
-      if (isEditing) {
-        const res = await fetch(`/api/tasks/${taskData.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(taskData),
-        });
+    if (taskData.id) {
+      const next = tasks.map((task) => {
+        if (task.id !== taskData.id) return task;
 
-        if (res.ok) {
-          const data = await res.json();
-          setTasks((prev) => {
-            const next = prev.map((t) => (t.id === taskData.id ? data.task : t));
-            saveTasksLocally(next);
-            return next;
-          });
-          showSnackbar({ text: "Task updated successfully", type: "success" });
-        }
-      } else {
-        const res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(taskData),
-        });
+        return {
+          ...task,
+          ...taskData,
+          id: task.id,
+          updatedAt: now,
+          subtasks: (taskData.subtasks || []).map((subtask) => ({
+            id: subtask.id || makeId(),
+            title: subtask.title,
+            isCompleted: subtask.isCompleted,
+          })),
+        } as Task;
+      });
 
-        if (res.ok) {
-          const data = await res.json();
-          setTasks((prev) => {
-            const next = [data.task, ...prev];
-            saveTasksLocally(next);
-            return next;
-          });
-          showSnackbar({ text: "Task created successfully", type: "success" });
-        }
-      }
+      persistTasks(next);
+      showSnackbar({ text: "Task updated", type: "success" });
+    } else {
+      const newTask = {
+        ...taskData,
+        id: makeId(),
+        isCompleted: false,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        subtasks: (taskData.subtasks || []).map((subtask) => ({
+          id: subtask.id || makeId(),
+          title: subtask.title,
+          isCompleted: subtask.isCompleted,
+        })),
+      } as Task;
 
-      fetchCategories();
-    } catch (e) {
-      console.error(e);
-      showSnackbar({ text: "Failed to save task", type: "error" });
+      persistTasks([newTask, ...tasks]);
+      showSnackbar({ text: "Task created", type: "success" });
     }
+
+    setIsTaskModalOpen(false);
+    setTaskToEdit(null);
   };
 
-  // 5. Toggle Subtask (Optimistic)
-  const handleToggleSubtask = async (taskId: string, subtask: Subtask) => {
-    const updatedStatus = !subtask.isCompleted;
-
-    setTasks((prev) => {
-      const next = prev.map((t) => {
-        if (t.id === taskId) {
-          return {
-            ...t,
-            subtasks: t.subtasks.map((st) =>
-              st.id === subtask.id ? { ...st, isCompleted: updatedStatus } : st
-            ),
-          };
-        }
-        return t;
-      });
-      saveTasksLocally(next);
-      return next;
-    });
-
-    try {
-      await fetch(`/api/tasks/${taskId}/subtasks`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subtaskId: subtask.id, isCompleted: updatedStatus }),
-      });
-    } catch {
-      // Revert if error
-      setTasks((prev) =>
-        prev.map((t) => {
-          if (t.id === taskId) {
-            return {
-              ...t,
-              subtasks: t.subtasks.map((st) =>
-                st.id === subtask.id ? { ...st, isCompleted: subtask.isCompleted } : st
+  const handleToggleSubtask = (taskId: string, subtask: Subtask) => {
+    persistTasks(
+      tasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: task.subtasks.map((item) =>
+                item.id === subtask.id
+                  ? { ...item, isCompleted: !item.isCompleted }
+                  : item
               ),
-            };
-          }
-          return t;
-        })
-      );
-    }
-  };
-
-  // 6. Add subtask directly to existing task
-  const handleAddSubtask = async (taskId: string, title: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}/subtasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setTasks((prev) => {
-          const next = prev.map((t) => {
-            if (t.id === taskId) {
-              return {
-                ...t,
-                subtasks: [...t.subtasks, data.subtask],
-              };
             }
-            return t;
-          });
-          saveTasksLocally(next);
-          return next;
-        });
-      }
-    } catch (e) {
-      console.error(e);
-    }
+          : task
+      )
+    );
   };
 
-  // 7. Categories CRUD
-  const handleSaveCategory = async (catData: { id?: string; name: string; color: string; icon: string }) => {
-    const isEditing = Boolean(catData.id);
+  const handleAddSubtask = (taskId: string, title: string) => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) return;
 
-    try {
-      if (isEditing) {
-        const res = await fetch(`/api/categories/${catData.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(catData),
-        });
-        if (res.ok) {
-          showSnackbar({ text: "Category updated", type: "success" });
-        }
-      } else {
-        const res = await fetch("/api/categories", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(catData),
-        });
-        if (res.ok) {
-          showSnackbar({ text: "Category created", type: "success" });
-        }
-      }
-      fetchCategories();
-      fetchTasks();
-    } catch (e) {
-      console.error(e);
-      showSnackbar({ text: "Failed to save category", type: "error" });
-    }
+    persistTasks(
+      tasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: [
+                ...task.subtasks,
+                {
+                  id: makeId(),
+                  title: trimmedTitle,
+                  isCompleted: false,
+                },
+              ],
+            }
+          : task
+      )
+    );
   };
 
-  const handleDeleteCategory = async (cat: Category) => {
-    if (!confirm(`Delete category "${cat.name}"? Tasks in this category will keep existing without a category.`)) {
+  const handleSaveCategory = (catData: {
+    id?: string;
+    name: string;
+    color: string;
+    icon: string;
+  }) => {
+    const name = catData.name.trim();
+    if (!name) return;
+
+    if (catData.id) {
+      persistCategories(
+        categories.map((category) =>
+          category.id === catData.id
+            ? { ...category, ...catData, name }
+            : category
+        )
+      );
+      showSnackbar({ text: "Category updated", type: "success" });
+    } else {
+      const newCategory = {
+        ...catData,
+        id: makeId(),
+        name,
+      } as Category;
+
+      persistCategories([...categories, newCategory]);
+      showSnackbar({ text: "Category created", type: "success" });
+    }
+
+    setIsCategoryModalOpen(false);
+    setCategoryToEdit(null);
+  };
+
+  const handleDeleteCategory = (category: Category) => {
+    if (
+      !confirm(
+        `Delete category "${category.name}"? Tasks in this category will remain without a category.`
+      )
+    ) {
       return;
     }
 
-    try {
-      const res = await fetch(`/api/categories/${cat.id}`, { method: "DELETE" });
-      if (res.ok) {
-        showSnackbar({ text: `Deleted category "${cat.name}"`, type: "info" });
-        if (selectedCategory === cat.id) {
-          setSelectedCategory(null);
-        }
-        fetchCategories();
-        fetchTasks();
-      }
-    } catch (e) {
-      console.error(e);
-      showSnackbar({ text: "Failed to delete category", type: "error" });
+    persistCategories(
+      categories.filter((item) => item.id !== category.id)
+    );
+
+    persistTasks(
+      tasks.map((task) =>
+        task.categoryId === category.id
+          ? { ...task, categoryId: null }
+          : task
+      )
+    );
+
+    if (selectedCategory === category.id) {
+      setSelectedCategory(null);
     }
+
+    showSnackbar({
+      text: `Deleted category "${category.name}"`,
+      type: "info",
+    });
   };
 
-  // 8. Auth handlers
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-      setUser(null);
-      showSnackbar({ text: "Signed out successfully", type: "info" });
-      fetchSession();
-      fetchTasks();
-    } catch (e) {
-      console.error(e);
-    }
+  const handleLogout = () => {
+    setUser(null);
+    showSnackbar({
+      text: "Offline mode: no account is connected",
+      type: "info",
+    });
   };
 
-  // Computed counts for badges
-  const todayStr = new Date().toISOString().split("T")[0];
-  const todayCount = tasks.filter((t) => t.dueDate === todayStr && !t.isCompleted).length;
-  const starredCount = tasks.filter((t) => t.isStarred && !t.isCompleted).length;
+  const todayStr = new Date().toLocaleDateString("en-CA");
+  const todayCount = tasks.filter(
+    (task) => task.dueDate === todayStr && !task.isCompleted
+  ).length;
+  const starredCount = tasks.filter(
+    (task) => task.isStarred && !task.isCompleted
+  ).length;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-100 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100">
-      {/* Tablet & Desktop Sidebar Navigation */}
       {deviceViewMode === "fluid" && (
         <div className="hidden md:flex h-full">
           <Sidebar
@@ -436,7 +319,7 @@ function TaskManagerApp() {
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
             categories={categories}
-            totalTasksCount={tasks.filter((t) => !t.isCompleted).length}
+            totalTasksCount={tasks.filter((task) => !task.isCompleted).length}
             todayTasksCount={todayCount}
             starredTasksCount={starredCount}
             onOpenNewTask={() => {
@@ -453,9 +336,7 @@ function TaskManagerApp() {
         </div>
       )}
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Bar in Fluid Mode */}
         {deviceViewMode === "fluid" && (
           <TopBar
             onOpenAuth={() => setIsAuthModalOpen(true)}
@@ -466,23 +347,24 @@ function TaskManagerApp() {
           />
         )}
 
-        {/* Viewport wrapped with AndroidPhoneFrame when in phone mode */}
         <AndroidPhoneFrame>
           <div className="flex-1 overflow-y-auto no-scrollbar">
             {loading ? (
               <div className="max-w-md mx-auto p-6 space-y-4">
-                <div className="h-8 bg-neutral-200 dark:bg-neutral-800 rounded-xl animate-pulse w-3/4"></div>
-                <div className="h-20 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse"></div>
-                <div className="h-10 bg-neutral-200 dark:bg-neutral-800 rounded-xl animate-pulse"></div>
+                <div className="h-8 bg-neutral-200 dark:bg-neutral-800 rounded-xl animate-pulse w-3/4" />
+                <div className="h-20 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse" />
+                <div className="h-10 bg-neutral-200 dark:bg-neutral-800 rounded-xl animate-pulse" />
                 <div className="space-y-3 pt-4">
-                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse"></div>
-                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse"></div>
-                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse"></div>
+                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse" />
+                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse" />
+                  <div className="h-24 bg-neutral-200 dark:bg-neutral-800 rounded-2xl animate-pulse" />
                 </div>
               </div>
             ) : (
               <>
-                {currentTab === "all" || currentTab === "today" || currentTab === "starred" ? (
+                {currentTab === "all" ||
+                currentTab === "today" ||
+                currentTab === "starred" ? (
                   <HomeTasksView
                     tasks={tasks}
                     categories={categories}
@@ -491,8 +373,8 @@ function TaskManagerApp() {
                     onSelectCategory={setSelectedCategory}
                     onToggleComplete={handleToggleComplete}
                     onToggleStar={handleToggleStar}
-                    onEdit={(t) => {
-                      setTaskToEdit(t);
+                    onEdit={(task) => {
+                      setTaskToEdit(task);
                       setIsTaskModalOpen(true);
                     }}
                     onDelete={handleDeleteTask}
@@ -515,8 +397,8 @@ function TaskManagerApp() {
                       setCategoryToEdit(null);
                       setIsCategoryModalOpen(true);
                     }}
-                    onEditCategory={(cat) => {
-                      setCategoryToEdit(cat);
+                    onEditCategory={(category) => {
+                      setCategoryToEdit(category);
                       setIsCategoryModalOpen(true);
                     }}
                     onDeleteCategory={handleDeleteCategory}
@@ -526,8 +408,8 @@ function TaskManagerApp() {
                     tasks={tasks}
                     onToggleComplete={handleToggleComplete}
                     onToggleStar={handleToggleStar}
-                    onEdit={(t) => {
-                      setTaskToEdit(t);
+                    onEdit={(task) => {
+                      setTaskToEdit(task);
                       setIsTaskModalOpen(true);
                     }}
                     onDelete={handleDeleteTask}
@@ -543,9 +425,17 @@ function TaskManagerApp() {
                 ) : (
                   <SettingsView
                     tasks={tasks}
-                    onTasksUpdated={fetchTasks}
+                    onTasksUpdated={() => {
+                      const local = loadTasksLocally();
+                      if (local?.tasks) setTasks(local.tasks);
+                    }}
                     onShowSnackbar={showSnackbar}
-                    onOpenAuth={() => setIsAuthModalOpen(true)}
+                    onOpenAuth={() =>
+                      showSnackbar({
+                        text: "Sign-in is unavailable in offline mode",
+                        type: "info",
+                      })
+                    }
                     onLogout={handleLogout}
                   />
                 )}
@@ -553,7 +443,6 @@ function TaskManagerApp() {
             )}
           </div>
 
-          {/* Android Mobile Bottom Navigation (shown on mobile or inside phone shell) */}
           <div className={deviceViewMode === "phone" ? "block" : "sm:hidden"}>
             <BottomNav
               currentTab={currentTab}
@@ -562,7 +451,6 @@ function TaskManagerApp() {
             />
           </div>
 
-          {/* Floating Action Button (FAB) for adding tasks */}
           <FloatingActionButton
             onClick={() => {
               setTaskToEdit(null);
@@ -572,7 +460,6 @@ function TaskManagerApp() {
         </AndroidPhoneFrame>
       </div>
 
-      {/* Task Creation & Edit Modal */}
       <TaskModal
         isOpen={isTaskModalOpen}
         onClose={() => setIsTaskModalOpen(false)}
@@ -582,7 +469,6 @@ function TaskManagerApp() {
         initialCategory={selectedCategory || undefined}
       />
 
-      {/* Category Creation & Edit Modal */}
       <CategoryModal
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
@@ -590,18 +476,18 @@ function TaskManagerApp() {
         categoryToEdit={categoryToEdit}
       />
 
-      {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={() => {
-          fetchTasks();
-          fetchCategories();
-          showSnackbar({ text: "Signed in successfully!", type: "success" });
+          setIsAuthModalOpen(false);
+          showSnackbar({
+            text: "This app is configured for offline use",
+            type: "info",
+          });
         }}
       />
 
-      {/* Android Style Snackbar / Toast */}
       <Snackbar message={snackbar} onClose={() => setSnackbar(null)} />
     </div>
   );
