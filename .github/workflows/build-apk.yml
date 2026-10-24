@@ -36,7 +36,6 @@ jobs:
       - name: Install Android SDK Command-line Tools
         run: |
           set -e
-
           mkdir -p "$ANDROID_HOME/cmdline-tools"
           cd "$RUNNER_TEMP"
 
@@ -48,7 +47,6 @@ jobs:
           unzip -q android-command-line-tools.zip -d android-cmdline-tools
 
           mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
-
           cp -a android-cmdline-tools/cmdline-tools/. \
             "$ANDROID_HOME/cmdline-tools/latest/"
 
@@ -58,7 +56,6 @@ jobs:
       - name: Install Android SDK Packages
         run: |
           set -e
-
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
 
           sdkmanager --sdk_root="$ANDROID_HOME" --install \
@@ -70,6 +67,15 @@ jobs:
         run: npm install
 
       - name: Build web app
+        run: npm run build
+
+      - name: Add Android platform if missing
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
+      - name: Build web app for Android
         run: npm run build
 
       - name: Sync Capacitor Android
