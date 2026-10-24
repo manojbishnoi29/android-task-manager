@@ -4,23 +4,30 @@ const LOCAL_STORAGE_KEY = "android_tasks_local_backup";
 const LAST_SAVED_KEY = "android_tasks_last_saved";
 const CATEGORIES_STORAGE_KEY = "android_categories_local_backup";
 
-export function saveTasksLocally(tasks: Task[]) {
-  if (typeof window === "undefined") return;
+function isBrowser(): boolean {
+  return typeof window !== "undefined" && typeof localStorage !== "undefined";
+}
+
+// Save tasks on this device
+export function saveTasksLocally(tasks: Task[]): boolean {
+  if (!isBrowser()) return false;
 
   try {
-    const payload = JSON.stringify(tasks);
-    localStorage.setItem(LOCAL_STORAGE_KEY, payload);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
     localStorage.setItem(LAST_SAVED_KEY, new Date().toISOString());
-  } catch (e) {
-    console.error("Failed to save tasks locally", e);
+    return true;
+  } catch (error) {
+    console.error("Failed to save tasks locally:", error);
+    return false;
   }
 }
 
+// Load tasks saved on this device
 export function loadTasksLocally(): {
   tasks: Task[];
   lastSaved: string | null;
 } | null {
-  if (typeof window === "undefined") return null;
+  if (!isBrowser()) return null;
 
   try {
     const data = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -28,58 +35,63 @@ export function loadTasksLocally(): {
 
     if (!data) return null;
 
-    const tasks = JSON.parse(data);
+    const tasks: unknown = JSON.parse(data);
 
     if (!Array.isArray(tasks)) return null;
 
     return {
-      tasks,
+      tasks: tasks as Task[],
       lastSaved,
     };
-  } catch (e) {
-    console.error("Failed to load local tasks", e);
+  } catch (error) {
+    console.error("Failed to load local tasks:", error);
     return null;
   }
 }
 
-export function saveCategoriesLocally(categories: Category[]) {
-  if (typeof window === "undefined") return;
+// Save categories on this device
+export function saveCategoriesLocally(categories: Category[]): boolean {
+  if (!isBrowser()) return false;
 
   try {
     localStorage.setItem(
       CATEGORIES_STORAGE_KEY,
       JSON.stringify(categories)
     );
-  } catch (e) {
-    console.error("Failed to save categories locally", e);
+    return true;
+  } catch (error) {
+    console.error("Failed to save categories locally:", error);
+    return false;
   }
 }
 
+// Load categories saved on this device
 export function loadCategoriesLocally(): Category[] | null {
-  if (typeof window === "undefined") return null;
+  if (!isBrowser()) return null;
 
   try {
     const data = localStorage.getItem(CATEGORIES_STORAGE_KEY);
 
     if (!data) return null;
 
-    const categories = JSON.parse(data);
+    const categories: unknown = JSON.parse(data);
 
     if (!Array.isArray(categories)) return null;
 
-    return categories;
-  } catch (e) {
-    console.error("Failed to load categories locally", e);
+    return categories as Category[];
+  } catch (error) {
+    console.error("Failed to load local categories:", error);
     return null;
   }
 }
 
+// Local storage information
 export function getLocalStorageStats(): {
   count: number;
   bytes: number;
   lastSaved: string | null;
 } {
-  if (typeof window === "undefined") {
+  if (!isBrowser()) {
     return { count: 0, bytes: 0, lastSaved: null };
   }
 
@@ -91,55 +103,63 @@ export function getLocalStorageStats(): {
       return { count: 0, bytes: 0, lastSaved: null };
     }
 
-    const parsed = JSON.parse(data);
+    const tasks: unknown = JSON.parse(data);
 
     return {
-      count: Array.isArray(parsed) ? parsed.length : 0,
+      count: Array.isArray(tasks) ? tasks.length : 0,
       bytes: new Blob([data]).size,
       lastSaved,
     };
-  } catch {
+  } catch (error) {
+    console.error("Failed to read local storage stats:", error);
     return { count: 0, bytes: 0, lastSaved: null };
   }
 }
 
-export function clearLocalBackup() {
-  if (typeof window === "undefined") return;
+// Clear local data only when explicitly requested
+export function clearLocalBackup(): void {
+  if (!isBrowser()) return;
 
   localStorage.removeItem(LOCAL_STORAGE_KEY);
   localStorage.removeItem(LAST_SAVED_KEY);
   localStorage.removeItem(CATEGORIES_STORAGE_KEY);
 }
 
+// Export tasks as a JSON backup
 export function downloadTasksJson(
   tasks: Task[],
-  userName: string = "alex"
-) {
-  if (typeof window === "undefined") return;
+  userName: string = "User"
+): void {
+  if (!isBrowser()) return;
 
-  const backup = {
-    appName: "Simple Android Task Manager",
-    exportedAt: new Date().toISOString(),
-    user: userName,
-    tasksCount: tasks.length,
-    tasks,
-  };
+  try {
+    const backup = {
+      appName: "Simple Android Task Manager",
+      exportedAt: new Date().toISOString(),
+      user: userName,
+      tasksCount: tasks.length,
+      tasks,
+    };
 
-  const blob = new Blob(
-    [JSON.stringify(backup, null, 2)],
-    { type: "application/json" }
-  );
+    const blob = new Blob(
+      [JSON.stringify(backup, null, 2)],
+      { type: "application/json" }
+    );
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
 
-  a.href = url;
-  a.download = `android-tasks-backup-${new Date()
-    .toISOString()
-    .split("T")[0]}.json`;
+    link.href = url;
+    link.download = `android-tasks-backup-${new Date()
+      .toISOString()
+      .split("T")[0]}.json`;
 
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Failed to export tasks:", error);
+  }
 }
