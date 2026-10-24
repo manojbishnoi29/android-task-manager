@@ -13,10 +13,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
-    env:
-      ANDROID_HOME: ${{ runner.temp }}/android-sdk
-      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,8 +28,15 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      - name: Set up Android SDK paths
+        run: |
+          echo "ANDROID_HOME=$RUNNER_TEMP/android-sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$RUNNER_TEMP/android-sdk" >> "$GITHUB_ENV"
+
       - name: Install Android SDK Command-line Tools
         run: |
+          set -e
+
           mkdir -p "$ANDROID_HOME/cmdline-tools"
           cd "$RUNNER_TEMP"
 
@@ -45,6 +48,7 @@ jobs:
           unzip -q android-command-line-tools.zip -d android-cmdline-tools
 
           mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+
           cp -a android-cmdline-tools/cmdline-tools/. \
             "$ANDROID_HOME/cmdline-tools/latest/"
 
