@@ -4,30 +4,46 @@ import { hashPassword } from "./auth";
 import { eq } from "drizzle-orm";
 
 export async function ensureDemoData() {
-  const existingUser = await db.select().from(users).where(eq(users.email, "alex@androidtask.com")).limit(1);
+  if (!db) {
+    return null;
+  }
+
+  const existingUser = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, "alex@androidtask.com"))
+    .limit(1);
 
   let userId: string;
 
   if (existingUser.length === 0) {
     userId = "demo-alex-user";
+
     await db.insert(users).values({
       id: userId,
       email: "alex@androidtask.com",
       username: "alex_starter",
       name: "Alex Morgan",
       passwordHash: hashPassword("beginner123"),
-      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+      avatarUrl:
+        "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
       theme: "system",
       accentColor: "emerald",
       soundEnabled: true,
       hapticEnabled: true,
       autoSaveLocal: true,
     });
+
     await seedTasksForUser(userId);
   } else {
     userId = existingUser[0].id;
-    // Check if tasks exist
-    const userTasks = await db.select().from(tasks).where(eq(tasks.userId, userId)).limit(1);
+
+    const userTasks = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.userId, userId))
+      .limit(1);
+
     if (userTasks.length === 0) {
       await seedTasksForUser(userId);
     }
@@ -37,15 +53,19 @@ export async function ensureDemoData() {
 }
 
 export async function seedTasksForUser(userId: string) {
-  // Clear any existing tasks/categories for this user
+  if (!db) {
+    return;
+  }
+
+  // Clear existing tasks and categories for this user.
   await db.delete(tasks).where(eq(tasks.userId, userId));
   await db.delete(categories).where(eq(categories.userId, userId));
 
-  // Today's date and relative dates
   const today = new Date();
-  const formatYMD = (d: Date) => d.toISOString().split("T")[0];
+  const formatYMD = (date: Date) => date.toISOString().split("T")[0];
 
   const todayStr = formatYMD(today);
+
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = formatYMD(tomorrow);
@@ -58,7 +78,6 @@ export async function seedTasksForUser(userId: string) {
   inFourDays.setDate(inFourDays.getDate() + 4);
   const inFourDaysStr = formatYMD(inFourDays);
 
-  // 1. Create categories
   const catGroceriesId = `cat-groceries-${userId}`;
   const catPersonalId = `cat-personal-${userId}`;
   const catWorkId = `cat-work-${userId}`;
@@ -70,7 +89,7 @@ export async function seedTasksForUser(userId: string) {
       id: catPersonalId,
       userId,
       name: "Personal",
-      color: "#3b82f6", // blue
+      color: "#3b82f6",
       icon: "user",
       isDefault: true,
     },
@@ -78,7 +97,7 @@ export async function seedTasksForUser(userId: string) {
       id: catGroceriesId,
       userId,
       name: "Groceries & Home",
-      color: "#10b981", // emerald
+      color: "#10b981",
       icon: "shopping-cart",
       isDefault: false,
     },
@@ -86,7 +105,7 @@ export async function seedTasksForUser(userId: string) {
       id: catWorkId,
       userId,
       name: "Work & Projects",
-      color: "#f59e0b", // amber
+      color: "#f59e0b",
       icon: "briefcase",
       isDefault: false,
     },
@@ -94,7 +113,7 @@ export async function seedTasksForUser(userId: string) {
       id: catStudyId,
       userId,
       name: "Study & Skills",
-      color: "#8b5cf6", // purple
+      color: "#8b5cf6",
       icon: "book-open",
       isDefault: false,
     },
@@ -102,13 +121,12 @@ export async function seedTasksForUser(userId: string) {
       id: catHealthId,
       userId,
       name: "Health & Habit",
-      color: "#f43f5e", // rose
+      color: "#f43f5e",
       icon: "heart-pulse",
       isDefault: false,
     },
   ]);
 
-  // 2. Create tasks
   const t1Id = `task-1-${userId}`;
   const t2Id = `task-2-${userId}`;
   const t3Id = `task-3-${userId}`;
@@ -229,9 +247,7 @@ export async function seedTasksForUser(userId: string) {
     },
   ]);
 
-  // 3. Subtasks
   await db.insert(subtasks).values([
-    // Subtasks for groceries
     {
       id: `sub-1-${t1Id}`,
       taskId: t1Id,
@@ -260,7 +276,6 @@ export async function seedTasksForUser(userId: string) {
       isCompleted: false,
       position: 3,
     },
-    // Subtasks for Work Slides
     {
       id: `sub-5-${t5Id}`,
       taskId: t5Id,
